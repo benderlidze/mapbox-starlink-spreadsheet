@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Add a raster image to a map layer</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.10.0/mapbox-gl.css" rel="stylesheet">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.10.0/mapbox-gl.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+    <script>
+        mapboxgl.accessToken = 'pk.eyJ1Ijoic2VyZ2JlciIsImEiOiJja3dwOWgzeGQwYWdyMm9xb2pkMDFvYmNuIn0.H9AJ_NLmDNYMed6dvu_Q0A';
+        const map = new mapboxgl.Map({
+            container: 'map',
+            zoom: 3.5,
+            center: { lng: -99.87499304564017, lat: 52.120878542971866 },
+            // Choose from Mapbox's core styles, or make your own style with Mapbox Studio
+            style: 'mapbox://styles/mapbox/dark-v10'
+        });
+
+
+        map.on('load', () => {
+            d3.csv("https://docs.google.com/spreadsheets/d/e/2PACX-1vRrMB_mtkkpNTRMWr34nnsmn-1zwyOVOZKCHAiovhZdw3RWDtPNpko2I5wl-lcSbf18mu0h8cwMoWV3/pub?output=csv")
+                .then(json => {
+                    console.log('json', json);
+
+                    json
+                        .filter(pin => +pin.lat >= -90 && +pin.lat <= 90)
+                        .forEach(pin => {
+                            console.log('pin', pin);
+                            const { lat, lon, name } = pin
+
+                            const popup = new mapboxgl.Popup({ offset: 25 }).setText(name);
+
+                            const marker2 = new mapboxgl.Marker({ color: 'red' })
+                                .setLngLat([+lon, +lat])
+                                .setPopup(popup) // sets a popup on this marker
+                                .addTo(map);
+                        });
+                })
+
+
+
+
+
+
+            map.addSource('states', {
+                'type': 'geojson',
+                'data': 'starlink.geojson'
+            });
+
+            // The feature-state dependent fill-opacity expression will render the hover effect
+            // when a feature's hover state is set to true.
+            map.addLayer({
+                'id': 'state-fills',
+                'type': 'fill',
+                'source': 'states',
+                'layout': {},
+                'paint': {
+                    'fill-color': ['get', 'color'],
+                    'fill-opacity': 0.8
+                }
+            });
+
+            map.addLayer({
+                'id': 'state-borders',
+                'type': 'line',
+                'source': 'states',
+                'layout': {},
+                'paint': {
+                    'line-color': '#627BC1',
+                    'line-width': 0
+                }
+            });
+
+            // Create a popup, but don't add it to the map yet.
+            const popup = new mapboxgl.Popup({
+                closeButton: false,
+                closeOnClick: false,
+                offset: [0, -10]
+            });
+
+            map.on('mousemove', 'state-fills', (e) => {
+                const description = e.features[0].properties.tooltip;
+                popup.setLngLat(e.lngLat).setHTML(description).addTo(map);
+            });
+
+            map.on('mouseleave', 'state-fills', () => {
+                popup.remove();
+            });
+        });
+    </script>
+
+</body>
+
+</html>

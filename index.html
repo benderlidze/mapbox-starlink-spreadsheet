@@ -8,6 +8,9 @@
     <link href="https://api.mapbox.com/mapbox-gl-js/v2.10.0/mapbox-gl.css" rel="stylesheet">
     <script src="https://api.mapbox.com/mapbox-gl-js/v2.10.0/mapbox-gl.js"></script>
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    <link rel="stylesheet" href="styles/switcher.css">
+
     <style>
         body {
             margin: 0;
@@ -20,92 +23,218 @@
             bottom: 0;
             width: 100%;
         }
+
+        #filters {
+            background-color: white;
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            border-radius: 20px;
+            z-index: 10;
+            padding: 10px;
+        }
+
+        .switcher-div {
+            display: flex;
+            align-items: center;
+            margin: 5px;
+        }
+
+        .switcher-div>div {
+            margin-left: 5px;
+        }
     </style>
 </head>
 
 <body>
+    <div id="filters"></div>
     <div id="map"></div>
     <script>
+
+        const filterDiv = document.getElementById("filters")
+
         mapboxgl.accessToken = 'pk.eyJ1Ijoic2VyZ2JlciIsImEiOiJja3dwOWgzeGQwYWdyMm9xb2pkMDFvYmNuIn0.H9AJ_NLmDNYMed6dvu_Q0A';
         const map = new mapboxgl.Map({
             container: 'map',
             zoom: 3.5,
             center: { lng: -99.87499304564017, lat: 52.120878542971866 },
             // Choose from Mapbox's core styles, or make your own style with Mapbox Studio
-            style: 'mapbox://styles/mapbox/dark-v10'
+            style: 'mapbox://styles/mapbox/streets-v11'
         });
 
+        const main = {
+            data: [],
+            filters: new Set()
+        };
+
+        const colorArray = ['#FFFF99', '#00B3E6',
+            '#E6B333', '#3366E6', '#999966', '#99FF99', '#B34D4D',
+            '#80B300', '#809900', '#E6B3B3', '#6680B3', '#66991A',
+            '#FF99E6', '#CCFF1A', '#FF1A66', '#E6331A', '#33FFCC',
+            '#66994D', '#B366CC', '#4D8000', '#B33300', '#CC80CC',
+            '#66664D', '#991AFF', '#E666FF', '#4DB3FF', '#1AB399',
+            '#E666B3', '#33991A', '#CC9999', '#B3B31A', '#00E680',
+            '#4D8066', '#809980', '#E6FF80', '#1AFF33', '#999933',
+            '#FF3380', '#CCCC00', '#66E64D', '#4D80CC', '#9900B3',
+            '#E64D66', '#4DB380', '#FF4D4D', '#99E6E6', '#6666FF'];
 
         map.on('load', () => {
+
+            map.addLayer({
+                id: 'satellite',
+                source: { "type": "raster", "url": "mapbox://mapbox.satellite", "tileSize": 256 },
+                type: "raster",
+                layout: {
+                    visibility: 'none'
+                }
+            });
+
             d3.csv("https://docs.google.com/spreadsheets/d/e/2PACX-1vRrMB_mtkkpNTRMWr34nnsmn-1zwyOVOZKCHAiovhZdw3RWDtPNpko2I5wl-lcSbf18mu0h8cwMoWV3/pub?output=csv")
                 .then(json => {
                     console.log('json', json);
 
-                    json
+                    const types = [...new Set(json.map(i => i.type))]
+
+                    types.forEach(type => {
+                        const checkboxD = buildCheckBox({
+                            name: type,
+                            callback: (checked) => {
+                                if (checked) {
+                                    main.filters.add(type)
+                                } else {
+                                    main.filters.delete(type)
+                                }
+                                filterData()
+                            },
+                        })
+                        filterDiv.append(checkboxD)
+                        main.filters.add(type)
+                    })
+
+                    filterDiv.appendChild(buildSwitcher("Satellite", checked => {
+                        const display = checked ? "visible" : "none"
+                        map.setLayoutProperty('satellite', 'visibility', display);
+                    }, false))
+
+                    const pins = json
                         .filter(pin => +pin.lat >= -90 && +pin.lat <= 90)
-                        .forEach(pin => {
-                            console.log('pin', pin);
-                            const { lat, lon, name } = pin
+                        .map(pin => {
+                            const { lat, lon, name, type } = pin
 
-                            const popup = new mapboxgl.Popup({ offset: 25 }).setText(name);
+                            // const 
 
-                            const marker2 = new mapboxgl.Marker({ color: 'red' })
-                                .setLngLat([+lon, +lat])
-                                .setPopup(popup) // sets a popup on this marker
-                                .addTo(map);
+                            const colorIndex = Array.from(main.filters).indexOf(type)
+                            const color = colorArray[colorIndex]
+
+                            return turf.point([lon, lat], {
+                                color,
+                                name,
+                                type
+                            });
                         });
+                    main.data.push(...pins)
+                    map.getSource("main").setData(turf.featureCollection(pins))
                 })
 
 
-
-
-
-
-            map.addSource('states', {
+            map.addSource('main', {
                 'type': 'geojson',
-                'data': 'starlink.geojson'
+                'data': turf.featureCollection([])
             });
-
-            // The feature-state dependent fill-opacity expression will render the hover effect
-            // when a feature's hover state is set to true.
             map.addLayer({
-                'id': 'state-fills',
-                'type': 'fill',
-                'source': 'states',
-                'layout': {},
+                'id': 'main',
+                'type': 'circle',
+                'source': 'main',
                 'paint': {
-                    'fill-color': ['get', 'color'],
-                    'fill-opacity': 0.8
+                    'circle-radius': 6,
+                    'circle-color': ['get', 'color'],
+                    "circle-stroke-color": "white",
+                    "circle-stroke-width": 2
                 }
             });
+            map.on('mousemove', 'main', e => {
+                map.getCanvas().style.cursor = 'pointer';
+            })
 
-            map.addLayer({
-                'id': 'state-borders',
-                'type': 'line',
-                'source': 'states',
-                'layout': {},
-                'paint': {
-                    'line-color': '#627BC1',
-                    'line-width': 0
-                }
+            map.on('mouseleave', 'main', () => {
+                map.getCanvas().style.cursor = '';
             });
 
-            // Create a popup, but don't add it to the map yet.
-            const popup = new mapboxgl.Popup({
-                closeButton: false,
-                closeOnClick: false,
-                offset: [0, -10]
-            });
-
-            map.on('mousemove', 'state-fills', (e) => {
-                const description = e.features[0].properties.tooltip;
-                popup.setLngLat(e.lngLat).setHTML(description).addTo(map);
-            });
-
-            map.on('mouseleave', 'state-fills', () => {
-                popup.remove();
-            });
         });
+
+        switchersEnableDiv.appendChild(buildSwitcher("Satellite", checked => {
+            const display = checked ? "visible" : "none"
+            map.setLayoutProperty('satellite', 'visibility', display);
+        }, false))
+
+
+        function filterData() {
+            const pins = main.data.filter(pin => {
+                const filter = Array.from(main.filters)
+                return filter.includes(pin.properties.type)
+            })
+            map.getSource("main").setData(turf.featureCollection(pins))
+        }
+
+
+        function buildCheckBox({ initState = "checked", name, callback, labelCallback, plusShow = true, plusCallback, tooltip }) {
+            const div = document.createElement('div');
+            div.className = 'check-item'
+
+            const checkbox = document.createElement('input');
+            checkbox.checked = initState
+            checkbox.dataset.circuit = name
+            checkbox.type = "checkbox";
+            checkbox.name = "name";
+            checkbox.value = "value";
+            checkbox.id = "";
+            checkbox.addEventListener("change", () => {
+                if (typeof callback === "function") callback(checkbox.checked)
+            })
+
+            const label = document.createElement('span')
+            label.htmlFor = "";
+            label.className = 'tooltip-container cooltipz--top cooltipz--static'
+            label.appendChild(document.createTextNode(name));
+
+            div.appendChild(checkbox);
+            div.appendChild(label);
+
+            return div
+        }
+
+        function buildSwitcher(labelText, action, checked = true) {
+
+            const div = document.createElement("div")
+            div.className = "switcher-div"
+
+            const label = document.createElement("label")
+            label.className = "switch"
+
+            const checkbox = document.createElement("input")
+            checkbox.type = "checkbox"
+            checkbox.checked = checked
+            checkbox.addEventListener("input", () => {
+                if (typeof action === "function") {
+                    action(checkbox.checked)
+                }
+            })
+
+            const span = document.createElement("span")
+            span.className = "slider round"
+
+            const text = document.createElement("div")
+            text.innerText = labelText
+
+            label.appendChild(checkbox)
+            label.appendChild(span)
+
+            div.appendChild(label)
+            div.appendChild(text)
+
+            return div
+        }
+
     </script>
 
 </body>
